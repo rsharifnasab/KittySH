@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -19,8 +20,28 @@ import (
 )
 
 const (
-	prompt = "[Yourname@Your PC]$ "
+	DefaultPrompt = "[%user@PC %path]$ "
 )
+
+var currentPrompt = DefaultPrompt
+
+func setPrompt(rl *readline.Instance, prompt string) {
+	prompt += " "
+
+	user, err := user.Current()
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	cwd, err := filepath.Abs(filepath.Dir("."))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	replacer := strings.NewReplacer("%user", user.Username, "%path", cwd)
+
+	rl.SetPrompt(replacer.Replace(prompt))
+}
 
 func execute(command string) {
 	commandUnix := filepath.ToSlash(command)
@@ -51,6 +72,7 @@ func execute(command string) {
 			}
 		}
 	}()
+
 	ch <- syscall.SIGWINCH                        // Initial resize.
 	defer func() { signal.Stop(ch); close(ch) }() // Cleanup signals when done.
 
@@ -59,6 +81,7 @@ func execute(command string) {
 	if err != nil {
 		panic(err)
 	}
+
 	defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }() // Best effort.
 
 	// Copy stdin to the pty and the pty to stdout.
@@ -91,17 +114,42 @@ func buildCompleter() *readline.PrefixCompleter {
 }
 
 func filterInput(r rune) (rune, bool) {
-	switch r {
 	// block CtrlZ feature
-	case readline.CharCtrlZ:
+	if r == readline.CharCtrlZ {
 		return r, false
 	}
+
 	return r, true
 }
 
+func cd(command string) {
+	cdCmd := strings.Split(strings.TrimSpace(command), " ")
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		panic(err)
+	}
+
+	replacer := strings.NewReplacer("~", home, "$HOME", home)
+
+	switch len(cdCmd) {
+	case 1:
+		err := os.Chdir(home)
+		if err != nil {
+			panic(fmt.Errorf("cannot cd to home: %w", err))
+		}
+	case 2: // nolint: gomnd
+		dest := replacer.Replace(cdCmd[1])
+
+		err := os.Chdir(dest)
+		if err != nil {
+			println("cannot cd to the desired dir")
+		}
+	}
+}
+
 func main() {
-	l, err := readline.NewEx(&readline.Config{
-		Prompt:          prompt,
+	l, err := readline.NewEx(&readline.Config{ // nolint: exhaustruct
 		HistoryFile:     "/tmp/kitty-hist.tmp",
 		AutoComplete:    buildCompleter(),
 		InterruptPrompt: "^C",
@@ -115,10 +163,11 @@ func main() {
 	}
 	defer l.Close()
 	l.CaptureExitSignal()
-
 	log.SetOutput(l.Stderr())
 
 	for {
+		setPrompt(l, currentPrompt)
+
 		line, err := l.Readline()
 		if errors.Is(err, readline.ErrInterrupt) {
 			if len(line) == 0 {
@@ -140,25 +189,14 @@ func main() {
 				break
 			}
 
-			l.SetPrompt(line[len("setprompt"):] + " ")
+			currentPrompt = line[len("setprompt"):]
+			setPrompt(l, currentPrompt)
 		case line == "exit":
 			goto exit
 		case line == "clear":
 			os.Stdout.Write([]byte("\x1b\x5b\x48\x1b\x5b\x32\x4a"))
 		case strings.HasPrefix(line, "cd"):
-			cdCmd := strings.Split(line, " ")
-			home, _ := os.UserHomeDir()
-
-			switch len(cdCmd) {
-			case 1:
-				_ = os.Chdir(home)
-			case 2: // nolint: gomnd
-				dest := strings.Split(line, " ")[1]
-				if dest == "~" {
-					dest = home
-				}
-				_ = os.Chdir(home)
-			}
+			cd(line)
 		case line == "":
 		default:
 			execute(line)
