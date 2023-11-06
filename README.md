@@ -1,6 +1,6 @@
 # Kitty Shell
 
-Most minimal shell possible with only basic features (run command/exit) plus anything that libraries can provide (history, auto complete, ...)
+Most minimal shell possible with only basic features (run command/exit) plus anything libraries can provide without hassle (history, auto-complete, ...)
 
 # Motivation
 
@@ -14,9 +14,9 @@ build with:
 go build -o kitty
 ```
 
-make sure you have proper internet connection because there are a few libraries that should be downloaded.
+Make sure you have a proper internet connection because there are a few libraries that should be downloaded.
 
-and run with:
+And run with:
 
 ```
 ./kitty
