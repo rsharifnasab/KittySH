@@ -145,6 +145,20 @@ func main() {
 			goto exit
 		case line == "clear":
 			os.Stdout.Write([]byte("\x1b\x5b\x48\x1b\x5b\x32\x4a"))
+		case strings.HasPrefix(line, "cd"):
+			cdCmd := strings.Split(line, " ")
+			home, _ := os.UserHomeDir()
+
+			switch len(cdCmd) {
+			case 1:
+				_ = os.Chdir(home)
+			case 2: // nolint: gomnd
+				dest := strings.Split(line, " ")[1]
+				if dest == "~" {
+					dest = home
+				}
+				_ = os.Chdir(home)
+			}
 		case line == "":
 		default:
 			execute(line)
